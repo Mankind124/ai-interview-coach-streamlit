@@ -3,14 +3,17 @@ import PyPDF2
 import io
 import os
 from services import interview_service
+import streamlit.components.v1 as components
 try:
     import speech_recognition as sr
     SPEECH_RECOGNITION_AVAILABLE = True
 except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
-    st.warning("Speech recognition not available in this environment. Text input will be used instead.")
 from gtts import gTTS
 import base64
+
+# Browser speech recognition is always available
+BROWSER_SPEECH_AVAILABLE = True
 
 # Page configuration
 st.set_page_config(
@@ -199,6 +202,200 @@ def speech_to_text():
         st.write(f"Error details: {type(e).__name__}")
         return None
 
+def browser_speech_recognition():
+    """Browser-based speech recognition using Web Speech API"""
+    
+    # Initialize session state for browser speech
+    if 'browser_speech_result' not in st.session_state:
+        st.session_state.browser_speech_result = ""
+    
+    st.info("🌐 **Browser Speech Recognition** - Works everywhere, including cloud deployment!")
+    
+    # Create the web speech component
+    web_speech_html = f"""
+    <div id="speech-container">
+        <button id="start-speech" onclick="startRecording()" style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        ">🎤 Start Recording</button>
+        
+        <button id="stop-speech" onclick="stopRecording()" style="
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+            display: none;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        ">⏹️ Stop Recording</button>
+        
+        <div id="speech-status" style="margin: 10px 0; font-weight: bold; color: #2c3e50;"></div>
+        <div id="speech-result" style="
+            border: 2px solid #3498db;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            min-height: 60px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            font-family: 'Arial', sans-serif;
+            line-height: 1.5;
+        ">Ready to record your response...</div>
+        
+        <button id="use-speech" onclick="useSpeechResult()" style="
+            background: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px 0;
+            display: none;
+        ">✅ Use This Recording</button>
+    </div>
+
+    <script>
+        let recognition;
+        let isRecording = false;
+        let finalResult = '';
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {{
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
+            
+            recognition.onstart = function() {{
+                document.getElementById('speech-status').innerHTML = '🎤 <span style="color: #e74c3c;">Listening...</span> Speak clearly and naturally!';
+                document.getElementById('start-speech').style.display = 'none';
+                document.getElementById('stop-speech').style.display = 'inline-block';
+                document.getElementById('use-speech').style.display = 'none';
+                isRecording = true;
+            }};
+            
+            recognition.onresult = function(event) {{
+                let interimTranscript = '';
+                finalResult = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {{
+                    if (event.results[i].isFinal) {{
+                        finalResult += event.results[i][0].transcript + ' ';
+                    }} else {{
+                        interimTranscript += event.results[i][0].transcript;
+                    }}
+                }}
+                
+                const displayText = finalResult + '<em style="color: #7f8c8d;">' + interimTranscript + '</em>';
+                document.getElementById('speech-result').innerHTML = displayText || 'Listening...';
+            }};
+            
+            recognition.onerror = function(event) {{
+                document.getElementById('speech-status').innerHTML = '❌ <span style="color: #e74c3c;">Error:</span> ' + event.error;
+                if (event.error === 'not-allowed') {{
+                    document.getElementById('speech-status').innerHTML += '<br><small>Please allow microphone access in your browser settings.</small>';
+                }}
+                resetButtons();
+            }};
+            
+            recognition.onend = function() {{
+                if (finalResult.trim()) {{
+                    document.getElementById('speech-status').innerHTML = '✅ <span style="color: #27ae60;">Recording completed!</span> Review your response below.';
+                    document.getElementById('use-speech').style.display = 'inline-block';
+                }} else {{
+                    document.getElementById('speech-status').innerHTML = '⚠️ <span style="color: #f39c12;">No speech detected.</span> Please try again.';
+                }}
+                resetButtons();
+            }};
+            
+        }} else {{
+            document.getElementById('speech-container').innerHTML = 
+                '<div style="background: #ffe6e6; border: 1px solid #ff9999; padding: 15px; border-radius: 8px; color: #cc0000;">' +
+                '<strong>❌ Speech Recognition Not Supported</strong><br>' +
+                'Please use Chrome, Edge, or Safari for speech recognition features.' +
+                '</div>';
+        }}
+
+        function startRecording() {{
+            if (recognition && !isRecording) {{
+                finalResult = '';
+                document.getElementById('speech-result').innerHTML = 'Starting...';
+                recognition.start();
+            }}
+        }}
+
+        function stopRecording() {{
+            if (recognition && isRecording) {{
+                recognition.stop();
+            }}
+        }}
+
+        function useSpeechResult() {{
+            if (finalResult.trim()) {{
+                // Store result in a way Streamlit can access
+                localStorage.setItem('speechResult', finalResult.trim());
+                
+                // Trigger a Streamlit rerun by clicking a hidden button
+                const event = new CustomEvent('speechComplete', {{
+                    detail: {{ text: finalResult.trim() }}
+                }});
+                window.dispatchEvent(event);
+                
+                document.getElementById('speech-status').innerHTML = '🔄 <span style="color: #3498db;">Submitting your response...</span>';
+            }}
+        }}
+
+        function resetButtons() {{
+            document.getElementById('start-speech').style.display = 'inline-block';
+            document.getElementById('stop-speech').style.display = 'none';
+            isRecording = false;
+        }}
+
+        // Auto-submit after 3 seconds of silence (optional)
+        let silenceTimer;
+        recognition.onresult = function(event) {{
+            // ... existing code ...
+            
+            // Reset silence timer
+            clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(function() {{
+                if (isRecording && finalResult.trim()) {{
+                    stopRecording();
+                }}
+            }}, 3000); // 3 seconds of silence
+        }};
+    </script>
+    """
+    
+    # Display the component
+    components.html(web_speech_html, height=250)
+    
+    # Check for speech result from localStorage
+    speech_result = components.html("""
+    <script>
+        const result = localStorage.getItem('speechResult');
+        if (result) {
+            localStorage.removeItem('speechResult');
+            // Send to parent
+            window.parent.postMessage({type: 'speechResult', text: result}, '*');
+        }
+    </script>
+    """, height=0)
+    
+    return st.session_state.browser_speech_result
+
 def main():
     initialize_session_state()
     
@@ -276,26 +473,48 @@ def main():
         
         # Audio mode toggle
         st.subheader("🎵 Interview Mode")
-        if SPEECH_RECOGNITION_AVAILABLE:
-            audio_mode = st.checkbox(
-                "🎤 Enable Audio Mode",
-                value=st.session_state.audio_mode,
-                help="Enable speech-to-text input and text-to-speech output"
-            )
-            st.session_state.audio_mode = audio_mode
-            
-            if audio_mode:
-                st.info("🔊 **Audio Mode Features:**")
-                st.write("• Questions will play automatically")
-                st.write("• Voice recording with extended listening time (2.5 seconds pause, 60 seconds max)")
-                st.write("• Automatic grammar correction and STAR analysis")
-                st.write("• Natural conversation flow")
+        
+        # Speech Recognition Options
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if SPEECH_RECOGNITION_AVAILABLE:
+                desktop_speech = st.checkbox(
+                    "🖥️ Desktop Speech Recognition",
+                    value=st.session_state.audio_mode and st.session_state.get('speech_type', 'desktop') == 'desktop',
+                    help="Uses PyAudio for high-quality speech recognition (local only)"
+                )
+                if desktop_speech:
+                    st.session_state.audio_mode = True
+                    st.session_state.speech_type = 'desktop'
+                    st.success("🔊 **Desktop Audio Mode Active:**")
+                    st.write("• High-quality microphone input")
+                    st.write("• Extended recording (60 seconds)")
+                    st.write("• Auto-submit functionality")
+                    st.write("• Microphone diagnostics")
             else:
-                st.info("💬 **Text Mode:** You can type responses and manually play audio if needed.")
-        else:
+                st.info("�️ **Desktop Speech:** Not available in cloud environment")
+        
+        with col2:
+            browser_speech = st.checkbox(
+                "🌐 Browser Speech Recognition",
+                value=st.session_state.audio_mode and st.session_state.get('speech_type', 'browser') == 'browser',
+                help="Uses browser's Web Speech API (works everywhere!)"
+            )
+            if browser_speech:
+                st.session_state.audio_mode = True
+                st.session_state.speech_type = 'browser'
+                st.success("� **Browser Audio Mode Active:**")
+                st.write("• Works in cloud deployment")
+                st.write("• No installation required")
+                st.write("• Cross-platform compatibility")
+                st.write("• Real-time transcription")
+        
+        # Reset audio mode if neither is selected
+        if not (SPEECH_RECOGNITION_AVAILABLE and desktop_speech) and not browser_speech:
             st.session_state.audio_mode = False
-            st.warning("🎤 **Audio Mode Unavailable:** Speech recognition is not available in this environment. Using text mode only.")
-            st.info("💬 **Text Mode:** You can type responses and manually play audio if needed.")
+            st.session_state.speech_type = None
+            st.info("💬 **Text Mode:** Type your responses manually. Audio playback still available.")
         
         # Start interview button
         required_fields = candidate_name and st.session_state.cv_text and st.session_state.job_title
@@ -400,54 +619,74 @@ def main():
                 """)
         
         # Speech input
-        if st.session_state.audio_mode and SPEECH_RECOGNITION_AVAILABLE:
-            st.info("🎤 **Voice Mode:** Record your response and it will be automatically submitted for processing!")
+        if st.session_state.audio_mode:
+            speech_type = st.session_state.get('speech_type', 'browser')
             
-            col1, col2, col3 = st.columns([1, 1, 2])
-            with col1:
-                if st.button("🎤 Record Response"):
-                    speech_text = speech_to_text()
-                    if speech_text:
-                        st.session_state.current_response = speech_text
-                        st.success(f"✅ Recorded: {speech_text[:100]}...")
-                        
-                        # Auto-submit in audio mode
-                        st.info("🔄 Auto-submitting your response...")
-                        
-                        # Trigger auto-submission by setting a flag
-                        st.session_state.auto_submit = True
-                        st.rerun()
-            
-            with col2:
-                if st.button("🔧 Test Mic"):
-                    st.info("Testing microphone...")
-                    try:
-                        mic_list = sr.Microphone.list_microphone_names()
-                        if mic_list:
-                            st.success(f"✅ Found {len(mic_list)} microphone(s)")
-                            for i, name in enumerate(mic_list[:3]):  # Show first 3
-                                st.write(f"  {i+1}. {name}")
+            if speech_type == 'desktop' and SPEECH_RECOGNITION_AVAILABLE:
+                st.info("🖥️ **Desktop Voice Mode:** High-quality microphone recording with auto-submit!")
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button("🎤 Record Response"):
+                        speech_text = speech_to_text()
+                        if speech_text:
+                            st.session_state.current_response = speech_text
+                            st.success(f"✅ Recorded: {speech_text[:100]}...")
                             
-                            # Test audio level
-                            st.info("🔊 Testing audio level... Say something!")
-                            r = sr.Recognizer()
-                            with sr.Microphone() as source:
-                                r.adjust_for_ambient_noise(source, duration=0.2)
-                                st.write(f"🔇 Ambient noise level: {r.energy_threshold}")
+                            # Auto-submit in audio mode
+                            st.info("🔄 Auto-submitting your response...")
+                            
+                            # Trigger auto-submission by setting a flag
+                            st.session_state.auto_submit = True
+                            st.rerun()
+                
+                with col2:
+                    if st.button("🔧 Test Mic"):
+                        st.info("Testing microphone...")
+                        try:
+                            mic_list = sr.Microphone.list_microphone_names()
+                            if mic_list:
+                                st.success(f"✅ Found {len(mic_list)} microphone(s)")
+                                for i, name in enumerate(mic_list[:3]):  # Show first 3
+                                    st.write(f"  {i+1}. {name}")
                                 
-                                try:
-                                    audio = r.listen(source, timeout=2, phrase_time_limit=2)
-                                    st.success("✅ Audio captured successfully!")
-                                except sr.WaitTimeoutError:
-                                    st.warning("⚠️ No audio detected during test")
-                        else:
-                            st.error("❌ No microphones found")
-                    except Exception as e:
-                        st.error(f"❌ Microphone test failed: {e}")
-        elif st.session_state.audio_mode and not SPEECH_RECOGNITION_AVAILABLE:
-            st.warning("🎤 **Speech recognition not available in this environment. Switching to text mode.**")
-            st.session_state.audio_mode = False
-            st.rerun()
+                                # Test audio level
+                                st.info("🔊 Testing audio level... Say something!")
+                                r = sr.Recognizer()
+                                with sr.Microphone() as source:
+                                    r.adjust_for_ambient_noise(source, duration=0.2)
+                                    st.write(f"🔇 Ambient noise level: {r.energy_threshold}")
+                                    
+                                    try:
+                                        audio = r.listen(source, timeout=2, phrase_time_limit=2)
+                                        st.success("✅ Audio captured successfully!")
+                                    except sr.WaitTimeoutError:
+                                        st.warning("⚠️ No audio detected during test")
+                            else:
+                                st.error("❌ No microphones found")
+                        except Exception as e:
+                            st.error(f"❌ Microphone test failed: {e}")
+            
+            elif speech_type == 'browser':
+                st.info("🌐 **Browser Voice Mode:** Universal speech recognition that works everywhere!")
+                
+                # Browser speech recognition component
+                browser_result = browser_speech_recognition()
+                
+                # If we get a result from browser speech, use it
+                if browser_result:
+                    st.session_state.current_response = browser_result
+                    st.success(f"✅ Browser recording captured: {browser_result[:100]}...")
+                    
+                    # Auto-submit in browser speech mode
+                    st.info("🔄 Auto-submitting your response...")
+                    st.session_state.auto_submit = True
+                    st.rerun()
+            
+            else:
+                st.warning("🎤 **Speech recognition not available. Switching to text mode.**")
+                st.session_state.audio_mode = False
+                st.rerun()
         
         # Text input
         response = st.text_area(
