@@ -448,8 +448,6 @@ def main():
             st.warning("🎤 **Speech recognition not available in this environment. Switching to text mode.**")
             st.session_state.audio_mode = False
             st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Microphone test failed: {e}")
         
         # Text input
         response = st.text_area(
