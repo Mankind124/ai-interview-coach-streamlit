@@ -3,7 +3,12 @@ import PyPDF2
 import io
 import os
 from services import interview_service
-import speech_recognition as sr
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
+    st.warning("Speech recognition not available in this environment. Text input will be used instead.")
 from gtts import gTTS
 import base64
 
@@ -131,6 +136,10 @@ def create_audio_player(text, auto_play=False):
 
 def speech_to_text():
     """Convert speech to text using speech recognition"""
+    if not SPEECH_RECOGNITION_AVAILABLE:
+        st.warning("🎤 Speech recognition not available in this environment. Please use text input instead.")
+        return None
+        
     try:
         r = sr.Recognizer()
         
@@ -267,20 +276,25 @@ def main():
         
         # Audio mode toggle
         st.subheader("🎵 Interview Mode")
-        audio_mode = st.checkbox(
-            "🎤 Enable Audio Mode",
-            value=st.session_state.audio_mode,
-            help="Enable speech-to-text input and text-to-speech output"
-        )
-        st.session_state.audio_mode = audio_mode
-        
-        if audio_mode:
-            st.info("🔊 **Audio Mode Features:**")
-            st.write("• Questions will play automatically")
-            st.write("• Voice recording with extended listening time (2.5 seconds pause, 60 seconds max)")
-            st.write("• Automatic grammar correction and STAR analysis")
-            st.write("• Natural conversation flow")
+        if SPEECH_RECOGNITION_AVAILABLE:
+            audio_mode = st.checkbox(
+                "🎤 Enable Audio Mode",
+                value=st.session_state.audio_mode,
+                help="Enable speech-to-text input and text-to-speech output"
+            )
+            st.session_state.audio_mode = audio_mode
+            
+            if audio_mode:
+                st.info("🔊 **Audio Mode Features:**")
+                st.write("• Questions will play automatically")
+                st.write("• Voice recording with extended listening time (2.5 seconds pause, 60 seconds max)")
+                st.write("• Automatic grammar correction and STAR analysis")
+                st.write("• Natural conversation flow")
+            else:
+                st.info("💬 **Text Mode:** You can type responses and manually play audio if needed.")
         else:
+            st.session_state.audio_mode = False
+            st.warning("🎤 **Audio Mode Unavailable:** Speech recognition is not available in this environment. Using text mode only.")
             st.info("💬 **Text Mode:** You can type responses and manually play audio if needed.")
         
         # Start interview button
@@ -386,7 +400,7 @@ def main():
                 """)
         
         # Speech input
-        if st.session_state.audio_mode:
+        if st.session_state.audio_mode and SPEECH_RECOGNITION_AVAILABLE:
             st.info("🎤 **Voice Mode:** Record your response and it will be automatically submitted for processing!")
             
             col1, col2, col3 = st.columns([1, 1, 2])
@@ -408,7 +422,6 @@ def main():
                 if st.button("🔧 Test Mic"):
                     st.info("Testing microphone...")
                     try:
-                        import speech_recognition as sr
                         mic_list = sr.Microphone.list_microphone_names()
                         if mic_list:
                             st.success(f"✅ Found {len(mic_list)} microphone(s)")
@@ -429,6 +442,12 @@ def main():
                                     st.warning("⚠️ No audio detected during test")
                         else:
                             st.error("❌ No microphones found")
+                    except Exception as e:
+                        st.error(f"❌ Microphone test failed: {e}")
+        elif st.session_state.audio_mode and not SPEECH_RECOGNITION_AVAILABLE:
+            st.warning("🎤 **Speech recognition not available in this environment. Switching to text mode.**")
+            st.session_state.audio_mode = False
+            st.rerun()
                     except Exception as e:
                         st.error(f"❌ Microphone test failed: {e}")
         
